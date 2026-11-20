@@ -1,0 +1,142 @@
+name: Build Base APK
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Generate Minimal WebView Project
+        run: |
+          mkdir -p app/src/main/java/com/appforge/base
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/assets
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p app/src/main/res/mipmap-$d
+            echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > app/src/main/res/mipmap-$d/ic_launcher.png
+          done
+
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "BaseApp"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.3.2' apply false
+          }
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.appforge.base'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.appforge.base"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">AppForge</string>
+          </resources>
+          EOF
+
+          cat << 'EOF' > app/src/main/assets/index.html
+          <!DOCTYPE html><html><body><h1>Hello</h1></body></html>
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="@string/app_name"
+                  android:icon="@mipmap/ic_launcher"
+                  android:theme="@android:style/Theme.NoTitleBar">
+                  <activity
+                      android:name="com.appforge.base.MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/appforge/base/MainActivity.java
+          package com.appforge.base;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  webView.setWebViewClient(new WebViewClient());
+                  setContentView(webView);
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk base.apk
+
+      - name: Upload base.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-apk
+          path: base.apk
